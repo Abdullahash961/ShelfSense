@@ -1,0 +1,3 @@
+# This directory stores camera capture snapshots for analysis.
+# Images placed here (or captured by the camera module) are analysed
+# by the ShelfAnalyzer pipeline.
