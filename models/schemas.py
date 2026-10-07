@@ -71,8 +71,13 @@ class AnalysisResultResponse(BaseModel):
     product_name: str
     fill_score: float
     status: str
+    product_count: int | None = None
     image_path: str | None
     analyzed_at: datetime
+    x: int = 0
+    y: int = 0
+    width: int = 0
+    height: int = 0
 
     model_config = {"from_attributes": True}
 

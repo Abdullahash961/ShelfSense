@@ -1,0 +1,16 @@
+# YOLOv8 Dataset Configuration — SKU-110K Product Counter
+#
+# SKU-110K is a single-class dataset where every product = "object".
+# On Google Colab, you don't need this file at all — Ultralytics
+# auto-downloads the dataset using its built-in SKU-110K config.
+#
+# This file is only needed if you manually downloaded the dataset
+# and want to train locally.
+
+path: ./data           # dataset root
+train: images/train    # train images (relative to 'path')
+val: images/val        # val images (relative to 'path')
+
+# Single class — every product is "object"
+names:
+  0: object

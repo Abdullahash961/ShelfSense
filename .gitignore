@@ -1,6 +1,13 @@
-﻿.venv/
+.venv/
 __pycache__/
 *.pyc
 diagnostics/
 *.pt
 .env
+training/data/
+training/runs/
+runs/
+dashboard/node_modules/
+.pytest_cache/
+data/captures/*.png
+data/shelfsense.db

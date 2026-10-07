@@ -1,2 +1,10 @@
-# This directory stores empty shelf reference images.
-# Add your empty_shelf.png (and any future shelf references) here.
+# Empty Shelf Reference Images
+#
+# Place empty shelf photos here for multi-reference comparison.
+# Naming convention:  empty_001.png, empty_002.png, ...
+#
+# Tips:
+#   - Capture under different lighting (morning, afternoon, evening)
+#   - All images must be the same resolution as the current camera feed
+#   - The system auto-discovers files matching: empty_*.png
+#   - More references = more robust detection (3-5 is a good target)

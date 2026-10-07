@@ -92,7 +92,7 @@ class DissimilarityComputer:
         )
         ssim_map = numerator / denominator
 
-        dssim = np.clip((1.0 - ssim_map) / 2.0, 0, 1)
+        dssim = np.clip(1.0 - ssim_map, 0, 1)
         return dssim.astype(np.float32)
 
     def color_hsv(self, img_a: np.ndarray, img_b: np.ndarray) -> np.ndarray:

@@ -1,0 +1,27 @@
+.summary-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  animation: fadeIn var(--transition-slow) ease both;
+}
+
+.summary-card-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.summary-card-label {
+  font-size: var(--font-size-xs);
+  color: var(--text-tertiary);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.summary-card-value {
+  font-size: var(--font-size-2xl);
+  font-weight: 700;
+  letter-spacing: -0.04em;
+  line-height: 1;
+}

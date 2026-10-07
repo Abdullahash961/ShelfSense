@@ -96,6 +96,7 @@ class AnalysisResultModel(Base):
     )
     fill_score = Column(Float, nullable=False)   # 0.0 – 1.0
     status = Column(String, nullable=False)       # "FULL" / "LOW" / "EMPTY"
+    product_count = Column(Integer, nullable=True)  # YOLO-detected product count
     image_path = Column(String, nullable=True)    # which capture was analysed
     analyzed_at = Column(
         DateTime, default=lambda: datetime.now(timezone.utc)
@@ -141,6 +142,18 @@ def init_db() -> None:
     """Create all tables if they don't exist.
 
     Safe to call multiple times — SQLAlchemy checks for existing tables
-    before creating.
+    before creating.  Also runs lightweight migrations for schema changes
+    (e.g. adding new nullable columns to existing tables).
     """
     Base.metadata.create_all(bind=engine)
+
+    # ── Lightweight migration: add product_count column if missing ──
+    from sqlalchemy import inspect, text
+    inspector = inspect(engine)
+    if inspector.has_table("analysis_results"):
+        columns = [col["name"] for col in inspector.get_columns("analysis_results")]
+        if "product_count" not in columns:
+            with engine.begin() as conn:
+                conn.execute(text(
+                    "ALTER TABLE analysis_results ADD COLUMN product_count INTEGER"
+                ))

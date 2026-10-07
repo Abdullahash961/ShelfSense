@@ -1,0 +1,70 @@
+.analyze-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.analyze-dropzone {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 160px;
+  border: 2px dashed var(--border-subtle);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: all var(--transition-base);
+  overflow: hidden;
+}
+
+.analyze-dropzone:hover {
+  border-color: var(--border-medium);
+  background: var(--bg-card);
+}
+
+.analyze-dropzone-active {
+  border-color: var(--accent);
+  background: var(--accent-dim);
+}
+
+.analyze-dropzone-has-file {
+  border-style: solid;
+  border-color: var(--border-medium);
+}
+
+.analyze-dropzone-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-sm);
+  color: var(--text-tertiary);
+  font-size: var(--font-size-sm);
+}
+
+.analyze-preview {
+  max-width: 100%;
+  max-height: 200px;
+  object-fit: contain;
+  border-radius: var(--radius-sm);
+}
+
+.analyze-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-sm);
+}
+
+/* ── Fullwidth zone drawer overlay ─────────────────────────────────── */
+
+.analyze-drawer-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: var(--bg-primary);
+  overflow-y: auto;
+  padding: var(--space-lg);
+}
+
+.analyze-drawer-overlay-inner {
+  max-width: 1200px;
+  margin: 0 auto;
+}

@@ -21,6 +21,7 @@ from config import settings
 from core.preprocessing import ImagePreprocessor
 from core.dissimilarity import DissimilarityComputer
 from core.morphology import MorphologyRefiner
+from core.product_counter import ProductCounter
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +54,7 @@ class ZoneResult:
     y: int
     width: int
     height: int
+    product_count: int | None = None   # YOLO-detected product count
     analyzed_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 
@@ -79,12 +81,14 @@ class ShelfAnalyzer:
         preprocessor: ImagePreprocessor | None = None,
         dissimilarity: DissimilarityComputer | None = None,
         morphology: MorphologyRefiner | None = None,
+        product_counter: ProductCounter | None = None,
         full_threshold: float | None = None,
         low_threshold: float | None = None,
     ) -> None:
         self.preprocessor = preprocessor or ImagePreprocessor()
         self.dissimilarity = dissimilarity or DissimilarityComputer()
         self.morphology = morphology or MorphologyRefiner()
+        self.product_counter = product_counter
         self.full_threshold = full_threshold or settings.FULL_THRESHOLD
         self.low_threshold = low_threshold or settings.LOW_THRESHOLD
 
@@ -123,22 +127,32 @@ class ShelfAnalyzer:
     def analyze_zone(
         self,
         zone_crop: np.ndarray,
-        ref_crop: np.ndarray,
+        ref_crops: list[np.ndarray],
         *,
         skip_align: bool = False,
     ) -> float:
         """Run the CV pipeline on a single zone crop and return occupancy.
 
-        Pipeline:
+        When multiple reference crops are provided, the dissimilarity map
+        is computed against each one and the **pixel-wise minimum** is
+        taken before morphological refinement.  This means a pixel is
+        considered "empty" if it matched emptiness under *any* captured
+        reference condition — dramatically reducing false positives from
+        lighting / shadow variation.
+
+        Pipeline (per reference):
             1. Preprocess (smooth + CLAHE, optionally align) both crops
             2. Compute fused dissimilarity map
-            3. Morphological refinement → occupancy ratio
+        Then:
+            3. Element-wise minimum across all reference maps
+            4. Morphological refinement → occupancy ratio
 
         Args:
             zone_crop:  BGR crop of the zone from the current frame.
-            ref_crop:   BGR crop of the same zone from the empty reference.
-            skip_align: If True, skip per-zone ECC alignment (e.g. when the
-                        full image was already aligned by ``analyze_shelf``).
+            ref_crops:  List of BGR crops of the same zone from one or
+                        more empty-shelf references.
+            skip_align: If True, skip per-zone ECC alignment (e.g. when
+                        the full image was already aligned).
 
         Returns:
             Occupancy ratio in [0.0, 1.0].
@@ -149,16 +163,31 @@ class ShelfAnalyzer:
                          zone_crop.shape[1], zone_crop.shape[0])
             return 0.0
 
-        # 1. Preprocess (resize + smooth + CLAHE + optional alignment)
-        proc_zone, proc_ref = self.preprocessor.preprocess(
-            zone_crop, ref_crop, skip_align=skip_align,
-        )
+        # Compute dissimilarity against each reference and keep the
+        # element-wise minimum ("best match wins" strategy)
+        min_map: np.ndarray | None = None
 
-        # 2. Dissimilarity
-        fused_map = self.dissimilarity.compute_all(proc_zone, proc_ref)
+        for idx, ref_crop in enumerate(ref_crops):
+            # 1. Preprocess (resize + smooth + CLAHE + optional alignment)
+            proc_zone, proc_ref = self.preprocessor.preprocess(
+                zone_crop, ref_crop, skip_align=skip_align,
+            )
 
-        # 3. Morphology + occupancy
-        occupancy = self.morphology.refine(fused_map)
+            # 2. Dissimilarity
+            fused_map = self.dissimilarity.compute_all(proc_zone, proc_ref)
+
+            if min_map is None:
+                min_map = fused_map
+            else:
+                min_map = np.minimum(min_map, fused_map)
+
+            logger.debug(
+                "Reference %d/%d — mean dissimilarity=%.4f",
+                idx + 1, len(ref_crops), fused_map.mean(),
+            )
+
+        # 3. Morphology + occupancy on the aggregated map
+        occupancy = self.morphology.refine(min_map)
 
         return occupancy
 
@@ -167,71 +196,107 @@ class ShelfAnalyzer:
     def analyze_shelf(
         self,
         current_image: np.ndarray,
-        reference_image: np.ndarray,
+        reference_images: list[np.ndarray],
         zones: list[ZoneDefinition],
     ) -> list[ZoneResult]:
         """Analyse all zones on a shelf and return structured results.
 
+        Supports multiple empty-shelf references for robustness against
+        lighting, shadow, and camera-angle variations.  All references
+        must share the same resolution.
+
         Steps:
-            1. Resize current to match reference if needed
-            2. Align current to reference (full-image ECC)
-            3. For each zone: crop → analyze_zone (skip per-zone align) → classify
+            1. Resize current to match references if needed
+            2. Align current to the first reference (full-image ECC)
+            3. For each zone: crop from current + all references
+               → analyze_zone (multi-ref min aggregation) → classify
             4. Return list of ``ZoneResult`` objects
 
         Args:
-            current_image:   BGR frame from the camera.
-            reference_image: BGR empty-shelf reference.
-            zones:           List of ``ZoneDefinition`` objects.
+            current_image:    BGR frame from the camera.
+            reference_images: One or more BGR empty-shelf references.
+                              All must have the same resolution.
+            zones:            List of ``ZoneDefinition`` objects.
 
         Returns:
             List of ``ZoneResult``, one per zone.
         """
+        if not reference_images:
+            raise ValueError("At least one reference image is required.")
+
+        # Use the first reference as the canonical size / alignment target
+        primary_ref = reference_images[0]
+
         # Standardise sizes
-        if current_image.shape[:2] != reference_image.shape[:2]:
+        if current_image.shape[:2] != primary_ref.shape[:2]:
             logger.info("Resizing current image %s → %s to match reference",
-                        current_image.shape[:2], reference_image.shape[:2])
+                        current_image.shape[:2], primary_ref.shape[:2])
             current_image = cv2.resize(
                 current_image,
-                (reference_image.shape[1], reference_image.shape[0]),
+                (primary_ref.shape[1], primary_ref.shape[0]),
             )
 
         # Full-image alignment (corrects camera drift before cropping)
-        current_image = self.preprocessor.align(current_image, reference_image)
+        current_image = self.preprocessor.align(current_image, primary_ref)
 
         timestamp = datetime.now(timezone.utc)
         results: list[ZoneResult] = []
 
-        logger.info("Analyzing %d zones", len(zones))
+        logger.info(
+            "Analyzing %d zones against %d reference(s)",
+            len(zones), len(reference_images),
+        )
         for zone in zones:
             x, y, w, h = zone.x, zone.y, zone.width, zone.height
 
             crop_current = current_image[y : y + h, x : x + w]
-            crop_ref = reference_image[y : y + h, x : x + w]
+            crop_refs = [
+                ref[y : y + h, x : x + w] for ref in reference_images
+            ]
 
-            # skip_align=True because full-image alignment was already done
-            score = self.analyze_zone(
-                crop_current, crop_ref, skip_align=True,
+            # Dissimilarity-based score (used as fallback)
+            dissimilarity_score = self.analyze_zone(
+                crop_current, crop_refs, skip_align=True,
             )
+
+            # YOLO product counting + bounding box fill ratio (primary when available)
+            product_count = None
+            fill_score = dissimilarity_score  # fallback
+            score_source = "dissimilarity"
+
+            if self.product_counter and self.product_counter.available:
+                count_result = self.product_counter.count_products(crop_current)
+                product_count = count_result.count
+
+                if count_result.count > 0:
+                    # Use bounding box area coverage as the fill score
+                    fill_score = count_result.compute_fill_ratio(w, h)
+                    score_source = "yolo_coverage"
+
             status = self.classify(
-                score,
+                fill_score,
                 full_threshold=zone.full_threshold,
                 low_threshold=zone.low_threshold,
             )
 
-            logger.info("Zone %-12s  score=%.4f  status=%s",
-                        zone.zone_name, score, status)
+            logger.info(
+                "Zone %-12s  score=%.4f (%s)  dissim=%.4f  status=%s  products=%s",
+                zone.zone_name, fill_score, score_source, dissimilarity_score,
+                status, product_count if product_count is not None else "n/a",
+            )
 
             results.append(
                 ZoneResult(
                     zone_id=zone.zone_id,
                     zone_name=zone.zone_name,
                     product_name=zone.product_name,
-                    fill_score=round(score, 4),
+                    fill_score=round(fill_score, 4),
                     status=status,
                     x=x,
                     y=y,
                     width=w,
                     height=h,
+                    product_count=product_count,
                     analyzed_at=timestamp,
                 )
             )
