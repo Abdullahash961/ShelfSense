@@ -2,7 +2,7 @@
 __pycache__/
 *.pyc
 diagnostics/
-*.pt
+
 .env
 training/data/
 training/runs/
